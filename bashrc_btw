@@ -1,0 +1,71 @@
+# btw - run two commands simultaneously with an optional condition
+# Usage: btw command1 ::: command2 [::: condition]
+#
+# Examples:
+#   btw check50 io/problems/... ::: submit50 io/problems/...
+#   btw check50 io/problems/... ::: submit50 io/problems/... ::: time == 32
+#   btw echo hello ::: echo world ::: time == 14:30
+#
+# Conditions:
+#   time == 32       → runs when current minute is 32
+#   time == 14:30    → runs when current time is 14:30
+#   always           → always runs (default if no condition given)
+
+btw() {
+    local args=("$@")
+    local cmd1=()
+    local cmd2=()
+    local condition="always"
+    local section=0
+
+    # split args by :::
+    for arg in "${args[@]}"; do
+        if [ "$arg" = ":::" ]; then
+            section=$((section + 1))
+        elif [ $section -eq 0 ]; then
+            cmd1+=("$arg")
+        elif [ $section -eq 1 ]; then
+            cmd2+=("$arg")
+        elif [ $section -eq 2 ]; then
+            condition="$condition $arg"
+        fi
+    done
+
+    # clean up condition
+    condition="${condition#always }"
+    condition="${condition#always}"
+    [ -z "$condition" ] && condition="always"
+
+    # evaluate condition
+    if [ "$condition" != "always" ]; then
+        local current_time=$(date +%H:%M)
+        local current_minute=$(date +%M)
+
+        if [[ "$condition" =~ ^time[[:space:]]*==[[:space:]]*([0-9]{1,2}):([0-9]{2})$ ]]; then
+            # time == HH:MM
+            local target_padded=$(printf "%02d:%02d" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}")
+            if [ "$current_time" != "$target_padded" ]; then
+                echo "Condition not met (current time is $current_time, waiting for $target_padded)"
+                return 1
+            fi
+        elif [[ "$condition" =~ ^time[[:space:]]*==[[:space:]]*([0-9]{1,2})$ ]]; then
+            # time == MM
+            local target_min=$(printf "%02d" "${BASH_REMATCH[1]}")
+            if [ "$current_minute" != "$target_min" ]; then
+                echo "Condition not met (current minute is $current_minute, waiting for $target_min)"
+                return 1
+            fi
+        else
+            echo "Unknown condition: $condition"
+            echo "Supported: time == 32  or  time == 14:30"
+            return 1
+        fi
+    fi
+
+    # run both commands
+    echo "Running:  ${cmd1[*]}"
+    echo "     btw: ${cmd2[*]}"
+    "${cmd1[@]}" &
+    "${cmd2[@]}" &
+    wait
+}
